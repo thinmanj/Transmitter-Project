@@ -11,12 +11,13 @@ def server(args):
         server_s.listen()
         conn, addr = server_s.accept()
         logger.info(f"Connection from {addr}")
-        with conn:
+        with conn, open("out.file", "wb") as out_file:
             logger.info(f"Connected by {addr}")
             while True:
                 data = conn.recv(1024)
                 if not data:
                     break
+                out_file.write(data)
                 logger.info(f"Data: {data!r}")
 
 
