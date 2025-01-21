@@ -6,29 +6,54 @@ logger = logging.getLogger(__name__)
 
 
 def server(args):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_s:
-        server_s.bind((args.ip, args.port))
-        server_s.listen()
-        conn, addr = server_s.accept()
-        logger.info(f"Connection from {addr}")
-        with conn, open("out.file", "wb") as out_file:
-            logger.info(f"Connected by {addr}")
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_s:
+            server_s.bind((args.ip, args.port))
+            server_s.listen()
             while True:
-                data = conn.recv(1024)
-                if not data:
-                    break
-                out_file.write(data)
-                logger.info(f"Data: {data!r}")
+                conn, addr = server_s.accept()
+                logger.info(f"Connection from {addr}")
+                try:
+                    with conn, open("out.file", "wb") as out_file:
+                        logger.info(f"Connected by {addr}")
+                        while True:
+                            data = conn.recv(1024)
+                            if not data:
+                                break
+                            out_file.write(data)
+                            logger.info(f"Data: {data!r}")
+                except FileNotFoundError:
+                    print(f"File or path not found")
+                except OSError:
+                    print(f"OS error ocurred")
+                except Exception as err:
+                    print("Unexpected error happened")
+
+            logger.info("Exiting server loop")
+    except socket.error as err_s:
+        print("Error happened while processing sockets")
 
 
 def client(args):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_s:
-        client_s.connect((args.ip, args.port))
-        logger.info(f"COmmunicating with {args.ip}:{args.port}")
-        with open(args.filename, "rb") as in_file:
-            for chunck in iter(lambda: in_file.read(1024), b''):
-                client_s.sendall(chunck)                   
-                logger.info(f"Sending data of size {len(chunck)}")
+    try:
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_s:
+            client_s.connect((args.ip, args.port))
+            logger.info(f"Communicating with {args.ip}:{args.port}")
+
+            try:
+                with open(args.filename, "rb") as in_file:
+                    for chunck in iter(lambda: in_file.read(1024), b''):
+                        client_s.sendall(chunck)                   
+                        logger.info(f"Sending data of size {len(chunck)}")
+            except FileNotFoundError:
+                print(f"File {args.filename} not found")
+            except OSError:
+                print(f"OS Error happend while trying to access file {args.filename}")
+            except Exceptionas as err_c:
+                print("Unexpected error happened")
+    except socket.error as err_c:
+        print("Error heppened while processing sockets")
 
 
 def main():
