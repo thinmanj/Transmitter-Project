@@ -10,12 +10,18 @@ def server(args):
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_s:
             server_s.bind((args.ip, args.port))
+            logger.info(f"Listening on {args.ip}:{args.port}")
             server_s.listen()
             while True:
                 conn, addr = server_s.accept()
                 logger.info(f"Connection from {addr}")
+                msg = conn.recv(1024).decode('utf-8')
+                logger.debug(f"Client send: {msg}")
+                conn.send("ok".encode('utf-8'))
+                filename = msg
+
                 try:
-                    with conn, open("out.file", "wb") as out_file:
+                    with conn, open(filename, "wb") as out_file:
                         logger.info(f"Connected by {addr}")
                         while True:
                             data = conn.recv(1024)
@@ -24,9 +30,9 @@ def server(args):
                             out_file.write(data)
                             logger.debug(f"Data: {data!r}")
                 except FileNotFoundError:
-                    logger.exception(f"File or path not found")
+                    logger.exception(f"File {filename} or path not found")
                 except OSError:
-                    logger.exception(f"OS error ocurred")
+                    logger.exception(f"OS error ocurred while accessing file {filename}")
                 except Exception as err:
                     logger.exception("Unexpected error happened")
 
@@ -44,6 +50,11 @@ def client(args):
 
             try:
                 with open(args.filename, "rb") as in_file:
+                    out_bound = f"{args.filename}"
+                    client_s.send(out_bound.encode('utf-8'))
+                    msg = client_s.recv(1024).decode('utf-8')
+                    logger.debug(f"Server answered: {msg}")
+
                     for chunck in iter(lambda: in_file.read(1024), b''):
                         client_s.sendall(chunck)                   
                         logger.info(f"Sending data of size {len(chunck)}")
@@ -51,7 +62,7 @@ def client(args):
                 logger.exception(f"File {args.filename} not found")
             except OSError:
                 logger.exception(f"OS Error happend while trying to access file {args.filename}")
-            except Exceptionas as err_c:
+            except Exception as err_c:
                 logger.exception("Unexpected error happened")
     except socket.error as err_c:
         logger.exception("Error heppened while processing sockets")
