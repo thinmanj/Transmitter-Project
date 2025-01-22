@@ -1,12 +1,20 @@
 import argparse
 import logging
 import multiprocessing
+import os
 import socket
 
 logger = logging.getLogger(__name__)
 
 
-def handler_server(conn, filename, addr):
+def handler_server(conn, addr):
+    filename = conn.recv(1024).decode("utf-8")
+    logger.debug(f"Client send: {filename}")
+    conn.send("ok".encode("utf-8"))
+
+    if "/" in filename:
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+
     try:
         with conn, open(filename, "wb") as out_file:
             logger.info(f"Connected by {addr}")
@@ -35,13 +43,9 @@ def server(args):
             while True:
                 conn, addr = server_s.accept()
                 logger.info(f"Connection from {addr}")
-                msg = conn.recv(1024).decode("utf-8")
-                logger.debug(f"Client send: {msg}")
-                conn.send("ok".encode("utf-8"))
-                filename = msg
 
                 process = multiprocessing.Process(
-                    target=handler_server, args=(conn, filename, addr)
+                    target=handler_server, args=(conn, addr)
                 )
                 process.start()
                 process_list.append(process)
@@ -54,10 +58,10 @@ def server(args):
         process.join()
 
 
-def handler_client(client_s, args):
+def handler_client(client_s, filename):
     try:
-        with open(args.filename, "rb") as in_file:
-            out_bound = f"{args.filename}"
+        with open(filename, "rb") as in_file:
+            out_bound = f"{filename}"
             client_s.send(out_bound.encode("utf-8"))
             msg = client_s.recv(1024).decode("utf-8")
             logger.debug(f"Server answered: {msg}")
@@ -66,11 +70,9 @@ def handler_client(client_s, args):
                 client_s.sendall(chunck)
                 logger.info(f"Sending data of size {len(chunck)}")
     except FileNotFoundError:
-        logger.exception(f"File {args.filename} not found")
+        logger.exception(f"File {filename} not found")
     except OSError:
-        logger.exception(
-            f"OS Error happend while trying to access file {args.filename}"
-        )
+        logger.exception(f"OS Error happend while trying to access file {filename}")
     except Exception as err_c:
         logger.exception("Unexpected error happened")
 
@@ -78,19 +80,30 @@ def handler_client(client_s, args):
 def client(args):
     logger.debug(f"Called with {args!r}")
     process_list = []
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_s:
-            client_s.connect((args.ip, args.port))
-            logger.info(f"Communicating with {args.ip}:{args.port}")
 
-            process = multiprocessing.Process(
-                target=handler_client, args=(client_s, args)
-            )
-            process.start()
-            process_list.append(process)
+    if not os.path.isdir(args.filename):
+        filenames = [args.filename]
+    else:
+        filenames = []
+        for root, _, files in os.walk(args.filename):
+            for name in files:
+                filenames.append(os.path.join(root, name))
 
-    except socket.error as err_c:
-        logger.exception("Error heppened while processing sockets")
+    for filename in filenames:
+
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_s:
+                client_s.connect((args.ip, args.port))
+                logger.info(f"Communicating with {args.ip}:{args.port}")
+
+                process = multiprocessing.Process(
+                    target=handler_client, args=(client_s, filename)
+                )
+                process.start()
+                process_list.append(process)
+
+        except socket.error as err_c:
+            logger.exception("Error heppened while processing sockets")
 
     for process in process_list:
         process.join()
