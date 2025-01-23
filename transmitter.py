@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import argparse
 import logging
 import multiprocessing
@@ -7,23 +8,34 @@ import socket
 logger = logging.getLogger(__name__)
 
 
-def handler_server(conn, addr):
+def _server_out_bound_name(conn):
     filename = conn.recv(1024).decode("utf-8")
     logger.debug(f"Client send: {filename}")
     conn.send("ok".encode("utf-8"))
 
+    return filename
+
+
+def _server_process_dir(filename):
     if "/" in filename:
-        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        path_parent = os.path.dirname(filename)
+        os.makedirs(path_parent, exist_ok=True)
+        logger.info(f"Create path: {path_parent}")
+
+
+def handler_server(conn, addr):
+    filename = _server_out_bound_name(conn)
+    _server_process_dir(filename)
 
     try:
         with conn, open(filename, "wb") as out_file:
-            logger.info(f"Connected by {addr}")
+            logger.info(f"Saving file: {filename}")
             while True:
                 data = conn.recv(1024)
                 if not data:
                     break
                 out_file.write(data)
-                logger.debug(f"Data: {data!r}")
+                logger.debug(f"Writning: {data!r}")
     except FileNotFoundError:
         logger.exception(f"File {filename} or path not found")
     except OSError:
@@ -35,6 +47,7 @@ def handler_server(conn, addr):
 def server(args):
     logger.debug(f"Called with {args!r}")
     process_list = []
+
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_s:
             server_s.bind((args.ip, args.port))
@@ -58,13 +71,17 @@ def server(args):
         process.join()
 
 
+def _client_out_bound_name(conn, filename):
+    out_bound = f"{filename}"
+    client_s.send(out_bound.encode("utf-8"))
+    msg = client_s.recv(1024).decode("utf-8")
+    logger.debug(f"Server answered: {msg}")
+
+
 def handler_client(client_s, filename):
     try:
         with open(filename, "rb") as in_file:
-            out_bound = f"{filename}"
-            client_s.send(out_bound.encode("utf-8"))
-            msg = client_s.recv(1024).decode("utf-8")
-            logger.debug(f"Server answered: {msg}")
+            _client_out_bound_name(conn, filename)
 
             for chunck in iter(lambda: in_file.read(1024), b""):
                 client_s.sendall(chunck)
@@ -90,7 +107,6 @@ def client(args):
                 filenames.append(os.path.join(root, name))
 
     for filename in filenames:
-
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_s:
                 client_s.connect((args.ip, args.port))
@@ -109,8 +125,7 @@ def client(args):
         process.join()
 
 
-def main():
-
+def log_setup():
     logging.basicConfig(
         filename="transmitter.log",
         level=logging.DEBUG,
@@ -127,6 +142,8 @@ def main():
     console.setFormatter(formatter)
     logging.getLogger("").addHandler(console)
 
+
+def handle_arguments():
     parser = argparse.ArgumentParser(prog="trasmitter.py", usage="%(prog)s [options]")
     parser.add_argument("action", choices=["send", "recv"])
     parser.add_argument("filename", nargs="?", default=None)
@@ -136,6 +153,15 @@ def main():
 
     if args.action == "send" and args.filename is None:
         parser.error("send action requires a filename")
+
+    return args
+
+
+def main():
+
+    log_setup()
+
+    args = handle_arguments()
 
     if args.action == "send":
         client(args)
